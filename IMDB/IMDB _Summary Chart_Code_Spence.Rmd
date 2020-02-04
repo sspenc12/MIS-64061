@@ -1,0 +1,53 @@
+---
+title: "IMDB Summary Chart"
+author: "Steve Spence"
+date: "2/2/2020"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+Import summary table from previous exploratory analysis:
+
+```{r eval=TRUE, include=FALSE}
+
+require(readxl)
+
+Summary_Results_Table <- read_excel("Results Table.xlsx")
+
+Summary_Results_Table$`Hidden Layers` <- as.numeric(Summary_Results_Table$`Hidden Layers`)
+Summary_Results_Table$`Nodes per Layer` <- as.numeric(Summary_Results_Table$`Nodes per Layer`)
+Summary_Results_Table$`Drop Out Rate` <- as.factor(Summary_Results_Table$`Drop Out Rate`)
+Summary_Results_Table$`Optimum Epochs` <- as.factor(Summary_Results_Table$`Optimum Epochs`)
+
+str(Summary_Results_Table)
+```
+
+Plot out results for single hidden layer versus number of nodes and drop out rate:
+
+```{r echo=TRUE}
+
+require(ggplot2)
+require(directlabels)
+
+ggplot(subset(Summary_Results_Table,`Hidden Layers` %in% c("1")), aes(x = `Nodes per Layer`, y = `Test Accuracy`, color = `Drop Out Rate`, group = `Drop Out Rate`)) +
+  geom_point(alpha = 0.25) +
+  geom_smooth(method = "lm", se = FALSE) +
+  theme_classic() +
+  theme(legend.position = "none", plot.title = element_text(hjust = 0.5), plot.subtitle = element_text(hjust = 0.5)) +
+  scale_x_continuous(breaks = c(16,32,64,128,256)) +
+  xlab("Nodes in Hidden Layer") +
+  ylab("Test Data Accuracy") +
+  labs(title = "Impact of Nodes and Drop Out Rate on Neural Network Accuracy", subtitle = "(Single Hidden Layer Model)") +
+  geom_dl(aes(label = `Drop Out Rate`), method = list(dl.trans(x = x - 2.8, y = y + 0.36), "last.points"), cex = 0.8)
+```
+
+
+
+
+
+
+
+
+
