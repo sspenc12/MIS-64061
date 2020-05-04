@@ -1,0 +1,241 @@
+---
+title: "Advanced Machine Learning - Final Project"
+author: "Steve Spence, Charity Elijah, Elham Zare, Timothy Akintoye"
+date: "5/1/2020"
+output: word_document
+---
+
+Twitter API has a limit of 200 tweets; therefore, the team had to utilize the following website to pull Trump historic tweets from:
+
+http://www.trumptwitterarchive.com
+
+This site allowed the team to pull tweets from a specific time frame. For the scope of this project, the team pulled the Twitter data around the time frame of COVID-19 (January 1, 2020 to Present)
+
+```{r}
+
+# Import Trump's historic tweets
+
+require(readxl)
+
+Trump_Tweets_Test <- read_excel("Trump_Tweets_2020.xlsx")
+
+head(Trump_Tweets_Test)
+
+```
+
+Next, we will only select the date and text columns.
+
+```{r}
+
+require(tidytext)
+require(tidyr)
+require(dplyr)
+require(rtweet)
+
+tweets.Trump <- Trump_Tweets_Test %>% select(created_at, text)
+
+```
+
+Now, we will have to clean up the tweets by:
+  1. Converting to lowercase
+  2. Revert words to stem words
+  3. Removing "https://" links
+  4. Removing punctuation
+  5. Removing stop words
+
+```{r}
+
+# Remove hyperlink elements
+
+tweets.Trump$stripped_text <- gsub("http\\S+","",tweets.Trump$text)
+
+# Convert words to lowercase, remove punctutation, and create an id for each tweet
+
+tweets.Trump.stem <- tweets.Trump %>%
+  select(stripped_text) %>%
+  unnest_tokens(word, stripped_text)
+
+# Remove stop words from the output
+
+cleaned.tweets.Trump <- tweets.Trump.stem %>%
+  anti_join(stop_words)
+
+# Review the results
+
+head(cleaned.tweets.Trump)
+
+```
+
+We can now look at the most popular words during this time frame
+
+```{r}
+
+require(ggplot2)
+
+# Reveal the top 10 words during this timeframe
+
+top_words <- cleaned.tweets.Trump %>%
+  count(word, sort = TRUE) %>%
+  top_n(10) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(x = word, y = n)) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip() +
+  theme_classic() +
+  labs(x = "Count",
+       y = "Unique Words",
+       title = "Top 10 Unique Words From Trump")
+
+print(top_words)
+```
+
+Next, a sentitment analysis will be performed on the tweets.
+
+Below shows example words that are considered "positive" ( values greater than 0 ) and "negative" ( values less than 0 ). Afinn will be used since it takes a score of the total words in the Tweet.
+
+```{r}
+
+require(tidytext)
+require(textdata)
+
+# Examples of postiive words
+
+get_sentiments("afinn") %>%
+  filter(value == "3")
+
+# Examples of negative words
+
+get_sentiments("afinn") %>%
+  filter(value == "-3")
+
+```
+
+Next, we will perform the sentitment analysis on the summation of all tweets with the "Afinn" lexicon.
+
+```{r}
+
+# Sentiment analysis with "Afinn" lexicon.
+
+afinn.tweets.Trump <- cleaned.tweets.Trump %>%
+  inner_join(get_sentiments("afinn")) %>%
+  count(word, value, sort = TRUE) %>%
+  ungroup()
+
+afinn.tweets.Trump
+
+```
+
+This chart will show a summary of all words Tweets during the desired timeframe and plot out the frequency of each word used.
+
+```{r}
+
+# Summary count of all words tweeted
+
+afinn.tweets.Trump %>%
+  group_by(value) %>%
+  top_n(10) %>%
+  ungroup() %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = value)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~value, scales = "free_y") +
+  labs(title = "Tweets From Trump",
+       y = "Contribution to Sentiment",
+       x = NULL) +
+  coord_flip() +
+  theme_bw()
+
+```
+
+However, we are more considered about the sentiment of each Tweet itself. Therefore, we will need to get a total score for each Tweet. The code for this is shown below.
+
+```{r}
+
+# Sentiment Score for Each Tweet
+
+sentiment.afinn <- function(twt){
+  twt_tbl = tibble(text = twt) %>%
+    mutate(
+      stripped_text = gsub("http\\S+","", text)
+    ) %>%
+    unnest_tokens(word, stripped_text) %>%
+    anti_join(stop_words) %>%
+    inner_join(get_sentiments("afinn")) %>%
+    count(word, value, sort = TRUE) %>%
+    ungroup() %>%
+    mutate(
+      score = value
+    )
+  
+  # Calculate total score for each tweet
+  sent.score = case_when(
+    nrow(twt_tbl) == 0 ~ 0,
+    nrow(twt_tbl) > 0 ~ sum(twt_tbl$score)
+  )
+  
+  # Keep track of tweets that contain no words from afinn list
+  
+  zero.type = case_when(
+    # Type 1 Means No Words at all
+    nrow(twt_tbl) == 0 ~ "Type 1",
+    # Type 2 Means Sum of All Words = 0
+    nrow(twt_tbl) > 0 ~ "Type 2"
+  )
+  
+  list(score = sent.score, type = zero.type, twt_tbl = twt_tbl)
+}
+
+```
+
+Now we will apply the function to the Tweets
+
+```{r}
+
+# Apply the function to the set of tweets
+
+Trump.tweets.sent <- lapply(Trump_Tweets_Test$text, function(x){sentiment.afinn(x)})
+
+```
+
+```{r}
+
+require(dplyr)
+require(purrr)
+
+Trump_sentiment <- bind_rows(
+  tibble(
+    date = Trump_Tweets_Test$created_at,
+    score = unlist(map(Trump.tweets.sent, "score")),
+    type = unlist(map(Trump.tweets.sent, "type")),
+    tweet = Trump_Tweets_Test$text
+  )
+)
+
+Trump_sentiment
+
+```
+
+Now we can plot out a histogram of the sentiments for review.
+
+```{r}
+
+require(ggplot2)
+
+# Plot of the tweet sentitments
+
+ggplot(Trump_sentiment, aes(x = score)) +
+  geom_histogram(bins = 15, alpha = 0.6) +
+  theme_bw()
+
+```
+
+We will also export the result as a CSV, so we can attempt to plot out the results in another software program.
+
+```{r}
+
+# Return a CSV of the file
+
+write.csv(Trump_sentiment,"sentitments.csv",row.names = TRUE)
+
+```
